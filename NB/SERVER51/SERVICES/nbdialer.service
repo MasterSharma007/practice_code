@@ -1,0 +1,15 @@
+[Unit]
+Description=This service nbdialer.
+After=network.target
+
+[Service]
+Type=simple
+User=
+WorkingDirectory=/home/Sumit/LIVE_SERVICES/
+ExecStart=/usr/bin/python3 dialer.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+

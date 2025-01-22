@@ -1,0 +1,19 @@
+[general]
+enabled = yes
+sessionlimit = 3000
+bindaddr = 0.0.0.0
+bindport = 8088
+tlsenable = yes
+tlsbindaddr = 0.0.0.0:8089
+
+;tlscertfile = /home/mayank/ssl_new/star_maxbupa_com.crt
+;tlsprivatekey =/home/mayank/ssl_new/dialer_prod.key
+
+;tlscertfile = /etc/asterisk/ssl_new/dial_nivabupa_com.pem
+;tlsprivatekey = /etc/asterisk/ssl_new/calling_nivabupa_com.key
+
+tlscertfile = /root/ssl_2024/dial.pem
+tlsprivatekey = /root/ssl_2024/server.key
+
+enablestatic=yes
+

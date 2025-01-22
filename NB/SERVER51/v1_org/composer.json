@@ -1,0 +1,13 @@
+{
+    "name": "root/customapi",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Vitel Global",
+            "email": "nagesh@vitelglobal.com"
+        }
+    ],
+    "require": {
+        "slim/slim": "3.*"
+    }
+}

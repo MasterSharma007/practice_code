@@ -1,0 +1,15 @@
+[Unit]
+Description=This service monitoring the health of PRIs for configured servers.
+After=network.target
+
+[Service]
+Type=simple
+User=
+WorkingDirectory=/home/Sumit/LIVE_SERVICES/
+ExecStart=/usr/bin/python ast_service.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+

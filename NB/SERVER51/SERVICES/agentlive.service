@@ -1,0 +1,15 @@
+[Unit]
+Description=This service monitoring the Live users.
+After=network.target
+
+[Service]
+Type=simple
+User=
+WorkingDirectory=/home/Sumit/LIVE_SERVICES/
+ExecStart=/usr/bin/python agent_live_status.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+

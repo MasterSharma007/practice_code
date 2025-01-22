@@ -1,0 +1,351 @@
+#!/usr/bin/python
+
+import telnetlib
+import re
+import sys
+import json
+import threading
+import time
+#import requests
+import os
+import subprocess
+import logging
+import pymysql.cursors
+import http.client
+import ast 
+import base64
+
+pacing_data = {}
+call_data = {}
+camp_data = {}
+pace_lock=threading.Lock()
+call_lock=threading.Lock()
+camp_lock=threading.Lock()
+
+db_config = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': 'ASTERISK',
+    'database': 'asterisk'
+}
+
+
+def lead_api(camp_id,lead):
+	conn = http.client.HTTPSConnection("crmtest.nivabupa.com")
+	payload = f"[{{\"campaign_id\":{camp_id},\"lead_count\":{lead}}}]"
+	log.info(f"Lead API payload {payload}" )
+	print(f"Lead API payload {payload}" )
+	headers = {  'Content-Type': 'application/json'}
+	conn.request("POST", "/api/v1/crm/campaign_leads", payload, headers)
+	res = conn.getresponse()
+	data = res.read()
+	alllead = data.decode("utf-8")
+	log.info(f"alllead: {alllead}")
+	return(alllead)
+
+def api_hit():
+	conn = http.client.HTTPSConnection("calling.nivabupa.com")
+	payload = ''
+	headers = {}
+	conn.request("GET", "/queueui/src/ami.php?q=liveUsers", payload, headers)
+	res = conn.getresponse()
+	data = res.read()
+	alld = data.decode("utf-8")
+	alldata = ast.literal_eval(alld)
+	agent_col =[str(row['resource']) for row in alldata if str(row['state']) == "online"]
+
+	return(agent_col)
+
+
+# Function to establish a MySQL connection with retry logic
+def get_mysql_connection(retries=3, delay=5):
+	attempts = 0
+	while attempts < retries:
+		try:
+			conn = pymysql.connect(**db_config)
+			return conn
+		except pymysql.MySQLError as err:
+			attempts += 1
+			time.sleep(delay)  # Wait before retrying
+	log.info("DB Failed to connect after multiple attempts.")
+	return None
+
+
+def PROG_DIAL(id_):
+
+	print(f'thread with id: {id_} started')
+	conn_5038 = tel(5038, auth=True)
+	connection = get_mysql_connection()
+	while (1):
+
+		try:
+			with connection.cursor() as cursor:
+				#sql = "select name,secret,callerid from sip_buddies limit 5;"
+				sql = "SELECT distinct(name),`campaign_id`,`call_type`,`call_method` from queues where `call_method`='Progrrasive';"
+				cursor.execute(sql)
+				result = cursor.fetchall()
+				for all in result:
+					print(f"PROG {all[0]},{all[1]}")
+            	
+		except:
+			log.exception('Issue while reading data')
+			conn_5038 = tel(5038, auth=True)
+
+		time.sleep(10)
+
+def PRD_DIAL(id_):
+
+	log.info(f'thread with id: {id_} started')
+	conn_5038 = tel(5038, auth=True)
+	connection = get_mysql_connection()
+	while (1):
+
+		try:
+			with connection.cursor() as cursor:
+				sql = "SELECT distinct(name),`campaign_id`,`call_type`,`call_method` from queues where `call_method`='Predictive';"
+				cursor.execute(sql)
+				result = cursor.fetchall()
+				for all in result:
+					camp_name = all[0]
+					sql = f"SELECT * FROM `queue_member_table` where `queue_name` = '{camp_name}';";
+					cursor.execute(sql)
+					result1 = cursor.fetchall()
+					if result1:
+						agent_col =[str(row[1]) for row in result1]
+						agents1 = ', '.join(agent_col)
+						agents = agents1.replace(', ','\',\'')
+						sql = f"SELECT `name` FROM `sip_buddies` where `name` IN ('{agents}') and `unmarked_lead` = 0 and `next_lead` = 0 and `is_loggedin`=1 and length(fullcontact)>0;";
+						camp_id = all[1]
+						with pace_lock:
+							if camp_id not in pacing_data:
+								pacing_data[camp_id] = 1
+						cursor.execute(sql)
+						result2 = cursor.fetchall()
+						if result2:
+							avl_agent =[str(row[0]) for row in result2]
+							on_agent=api_hit()					
+							final_agents = [item for item in avl_agent if item in on_agent]	
+							#print(final_agents,type(final_agents))	
+							agent_count = len(final_agents)
+							callable_agent = ','.join(final_agents)
+							log.info(f"PROD, {all[0]},{camp_id}, {agent_count},{callable_agent}")
+							
+							callable_agent_encode = base64.b64encode(callable_agent.encode('utf-8'))
+							#with pace_lock:
+							print("agent_PACE",pacing_data[camp_id],camp_id)	
+							agent_count *= int(pacing_data[camp_id])
+							print("agent_PACE",pacing_data[camp_id],camp_id)	
+							print("agent_count",agent_count)	
+							leads_str = lead_api(camp_id,agent_count)
+							allleads = json.loads(leads_str)
+							campid = allleads["data"][0]["campaign_id"]
+							leads = allleads["data"][0]["leads"]
+							if leads:
+								for dial_lead in leads:
+									waittime = 60
+									CallerId = "9540581030-275248-1"
+									leadid = dial_lead["lead_id"] 
+									bnsdid = dial_lead["business_id"]
+									mob = dial_lead["mobile_number"][0] 
+									b1 = dial_lead["mobile_number"][1] 
+									b2 = dial_lead["mobile_number"][2] 
+
+									cmd = f"Action: originate\r\nChannel: LOCAL/{mob}@dial_predictive\r\nWaitTime: {waittime}\r\nExten: {mob}\r\nContext: predictive\r\nCallerId: {CallerId}\r\nAsync: true\r\nVariable: lead_id={leadid}\r\nVariable: business_type={bnsdid}\r\nVariable: mobile_number={mob}\r\nVariable: campaign_id={campid}\r\nVariable: dest_queue={camp_name}\r\nVariable: callable={callable_agent_encode}\r\nVariable: call_method=Predictive\r\nVariable: call_type=\r\nAccount: {camp_name}\r\nPriority: 1\r\n\r\nAsync: true\r\n\r\n"
+									#print(cmd) 
+									log.info(f"DELETE BLOCK PACKET===> {cmd}\n")
+									conn_5038.write(cmd.encode())
+							else:
+								print(campid,": No Leads available.")
+						else:
+							print(camp_id,": No Agentss available.")
+							
+					
+		except Exception as err:
+			log.exception(f"Exception in Predictive Dial Block. {err}")
+			conn_5038 = tel(5038, auth=True)
+		time.sleep(10)
+
+def NEW_EVENT(id_):
+	
+	print(f'thread with id: {id_} started')
+	conn_5038 = tel(5038, auth=True)
+	while (1):
+
+		try:
+			event = conn_5038.read_until(b'\r\n\r\n')
+			event = event.decode('utf-8')
+			log.info(f"EVENT:{event}")
+			if "Event: Newchannel" in event and "Context: dial_predictive" in event and "ChannelStateDesc: Down" in event:
+				print("EVENT",event)
+				str_event = ''.join(event)
+				npdata = str_event.split('Uniqueid: ')[1]
+				uid = npdata.split('\r\n')[0]
+				with call_lock:
+					if uid not in call_data:
+						call_data[uid] = 0
+            	
+			if "Event: VarSet" in event and "Context: dial_predictive" in event and "Variable: campaign_id" in event:
+				#print("EVENT",event)
+				str_event = ''.join(event)
+				pdata = str_event.split('Uniqueid: ')[1]
+				uid = pdata.split('\r\n')[0]
+				vdata = pdata.split('Value: ')[1]
+				cval = vdata.split('\r\n')[0]
+				with call_lock:
+					if uid in call_data:
+						call_data[uid] = cval
+            	
+		except Exception as err:
+			log.exception(f"Exception in New Event. {err}")
+			conn_5038 = tel(5038, auth=True)
+		time.sleep(0.1)
+
+
+def END_EVENT(id_):
+	
+	print(f'thread with id: {id_} started')
+	conn_5038 = tel(5038, auth=True)
+	while (1):
+
+		try:
+			event = conn_5038.read_until(b'\r\n\r\n')
+			event = event.decode('utf-8', errors='ignore')
+			#print("EVENT",event)
+			#if "Event: DialEnd" in event :
+			#	print("EVENT",event)
+			if "Event: PRD_END" in event:
+				print("END_EVENT",event)
+			if "Event: HangupRequest" in event and "AccountCode: PREDICTIVE_TESTING" in event and ("Context: dial_predictive" in event or "Context: agent_predictive" in event):
+				print("EVENT",event)
+				str_event = ''.join(event)
+				hdata = str_event.split('ChannelState: ')[1]
+				hcode = hdata.split('\r\n')[0]
+				pdata = str_event.split('Uniqueid: ')[1]
+				uid = pdata.split('\r\n')[0]
+				ldata = pdata.split('Linkedid: ')[1]
+				ldid = ldata.split('\r\n')[0]
+				#print("UID_HVAL",uid,hcode)
+				with call_lock:
+					if uid in call_data:
+						camp = call_data[uid]
+						del call_data[uid]
+						if camp in camp_data:
+							camp_data[camp]["total"] = int(camp_data[camp]["total"]) +1
+							if int(hcode) == 6:
+								camp_data[camp]["ans"] = camp_data[camp]["ans"] +1
+							else:
+								camp_data[camp]["noans"] = camp_data[camp]["noans"] +1
+						else:
+							camp_data[camp] = {}
+							camp_data[camp]["total"] = 1
+							if int(hcode) == 6:
+								camp_data[camp]["ans"] = 1
+								camp_data[camp]["noans"] = 0
+							else:
+								camp_data[camp]["noans"] = 1
+								camp_data[camp]["ans"] = 0
+					print("UID_CAMP_DATA",camp_data)
+
+					if ldid in call_data:
+						camp = call_data[ldid]
+						del call_data[ldid]
+						if camp in camp_data:
+							camp_data[camp]["total"] = int(camp_data[camp]["total"]) +1
+							if int(hcode) == 6:
+								camp_data[camp]["ans"] = camp_data[camp]["ans"] +1
+							else:
+								camp_data[camp]["noans"] = camp_data[camp]["noans"] +1
+						else:
+							camp_data[camp] = {}
+							camp_data[camp]["total"] = 1
+							if int(hcode) == 6:
+								camp_data[camp]["ans"] = 1
+								camp_data[camp]["noans"] = 0
+							else:
+								camp_data[camp]["noans"] = 1
+								camp_data[camp]["ans"] = 0
+					print("LDID_CAMP_DATA",camp_data)
+
+            	
+		except Exception as err:
+			log.exception(f"Exception in Hangup Block. {err}")
+			conn_5038 = tel(5038, auth=True)
+		time.sleep(0.1)
+def PACE_MON(id_):
+	
+	print(f'thread with id: {id_} started')
+	while (1):
+
+		try:	
+			with camp_lock:
+				for campd in camp_data:
+					total = camp_data[campd]["total"]
+					if total > 10:
+						ans = camp_data[campd]["ans"]
+						noans = camp_data[campd]["noans"]
+						ans_per = (ans/total)*100
+						if ans_per < 10:
+							with pace_lock:
+								pacing_data[campd]=0
+						elif ans_per < 30:
+							with pace_lock:
+								pacing_data[campd]= pacing_data[campd] + 1
+						else:
+							if pacing_data[campd] > 1:
+								with pace_lock:
+									pacing_data[campd]= pacing_data[campd] - 1
+						camp_data[campd]["total"]=0
+					
+			#with pace_lock:
+			print("PACING",pacing_data)
+			#with call_lock:
+			print("CALL_DATA",call_data)
+			#with camp_lock:
+			print("CAMP_DATA",camp_data)
+            	
+		except:
+			log.exception('Issue while Pacing Monitor.')
+
+		time.sleep(7)
+# Create new threads
+fnc  = {
+    'prg_dial': [PROG_DIAL, (1,)],
+    'prd_dial': [PRD_DIAL, (2,)],
+    'pace_mon': [PACE_MON, (3,)],
+    'new_pack': [NEW_EVENT, (4,)],
+    'hang_pack': [END_EVENT, (5,)]
+}
+log = logging.getLogger('muylooger')
+logging.basicConfig(level=logging.DEBUG,format="%(asctime)s : %(levelname)s : %(lineno)s :: %(message)s", filename='/tmp/common_log.txt')
+log.info('=========== RESTART SERVICE =========')
+
+def tel(port, auth=False, connection_limit=None):
+
+    while 1:
+        try:
+            log.debug(f'Connecting to telnet on {port}')
+            telnet_conn = telnetlib.Telnet('localhost',port)
+            if auth:
+                telnet_conn.write(b"action: login\r\nusername: max_mbhi\r\nsecret: mbhi_max\r\nEvent: on\r\n\r\n")
+                telnet_conn.read_until(b"Authentication accepted")
+                log.info('Auth accepted\nConnection created with port: {port}')
+
+        except:
+            log.exception('Reconnection issue')
+            time.sleep(3)
+
+        else:
+            return telnet_conn
+
+while 1:
+
+    THLIST = [x.name for x in threading.enumerate()]
+
+    for fname, fargs in fnc.items():
+        if fname not in THLIST:
+            thr = threading.Thread(target=fargs[0], args=fargs[1], name=fname)
+            thr.start()
+
+    log.info(f"Threads list===>{THLIST}")
+    time.sleep(5)
+

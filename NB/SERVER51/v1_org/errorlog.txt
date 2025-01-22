@@ -1,0 +1,23 @@
+* About to connect() to crm.nivabupa.com port 80 (#2)
+*   Trying 10.0.10.238...
+* Connected to crm.nivabupa.com (10.0.10.238) port 80 (#2)
+> POST /api/v1/dialer_call/update/1668419443.679806 HTTP/1.1
+Host: crm.nivabupa.com
+Accept: */*
+Accept-Encoding: deflate, gzip
+Content-Type: application/json
+Content-Length: 142
+
+* upload completely sent off: 142 out of 142 bytes
+< HTTP/1.1 200 OK
+< Date: Mon, 14 Nov 2022 09:51:15 GMT
+< Content-Type: application/json
+< Content-Length: 44
+< Connection: keep-alive
+< Vary: Accept, Cookie
+< Allow: POST, OPTIONS
+< X-Frame-Options: DENY
+< X-Content-Type-Options: nosniff
+< X-XSS-Protection: 1; mode=block
+< 
+* Connection #2 to host crm.nivabupa.com left intact
